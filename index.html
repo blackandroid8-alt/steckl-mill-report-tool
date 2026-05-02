@@ -1012,177 +1012,183 @@
             });
 
             [...natures].sort().forEach(nature => {
-                const div = document.createElement('div');
-                div.className = 'checkbox-item';
+                const label = document.createElement('label');
+                label.className = 'checkbox-item';
                 const checkbox = document.createElement('input');
                 checkbox.type = 'checkbox';
                 checkbox.value = nature;
                 checkbox.onchange = applyFilters;
-                const label = document.createElement('label');
-                label.textContent = nature;
-                div.appendChild(checkbox);
-                div.appendChild(label);
-                natureFilter.appendChild(div);
+                const labelText = document.createElement('label');
+                labelText.textContent = nature;
+                label.appendChild(checkbox);
+                label.appendChild(labelText);
+                natureFilter.appendChild(label);
             });
         }
 
         function applyFilters() {
             const dateStart = document.getElementById('dateStart').value;
             const dateEnd = document.getElementById('dateEnd').value;
-            const clientValues = Array.from(document.getElementById('clientFilter').selectedOptions).map(o => o.value);
-            const gammeValues = Array.from(document.getElementById('gammeFilter').selectedOptions).map(o => o.value);
-            const natureChecks = Array.from(document.querySelectorAll('#natureFilter input:checked')).map(c => c.value);
+            const clientFilter = Array.from(document.getElementById('clientFilter').selectedOptions).map(o => o.value);
+            const gammeFilter = Array.from(document.getElementById('gammeFilter').selectedOptions).map(o => o.value);
+            const natureChecks = Array.from(document.querySelectorAll('#natureFilter input[type="checkbox"]:checked')).map(c => c.value);
 
             filteredData = rawData.filter(row => {
-                if (row[19]) {
-                    const rowDate = row[19];
-                    if (dateStart && rowDate < dateStart) return false;
-                    if (dateEnd && rowDate > dateEnd) return false;
-                }
-
-                if (clientValues.length > 0 && !clientValues.includes(row[5])) return false;
-                if (gammeValues.length > 0 && !gammeValues.includes(row[6])) return false;
+                const rowDate = row[19];
+                if (dateStart && rowDate < dateStart) return false;
+                if (dateEnd && rowDate > dateEnd) return false;
+                if (clientFilter.length > 0 && !clientFilter.includes(row[5])) return false;
+                if (gammeFilter.length > 0 && !gammeFilter.includes(row[6])) return false;
                 if (natureChecks.length > 0 && !natureChecks.includes(row[15])) return false;
-
                 return true;
             });
 
-            updateDashboard();
-        }
-
-        function resetFilters() {
-            document.getElementById('dateStart').value = '';
-            document.getElementById('dateEnd').value = '';
-            document.getElementById('clientFilter').selectedIndex = -1;
-            document.getElementById('gammeFilter').selectedIndex = -1;
-            document.querySelectorAll('#natureFilter input').forEach(c => c.checked = false);
-            applyFilters();
-        }
-
-        function updateDashboard() {
             updateKPIs();
             updateCharts();
             updateTables();
         }
 
         function updateKPIs() {
-            let totalProduction = 0;
-            let clients = new Set();
-            let articles = new Set();
-            let bobines = 0;
+            const total = filteredData.reduce((sum, row) => sum + (parseFloat(row[16]) || 0), 0);
+            const clients = new Set(filteredData.map(r => r[5]).filter(x => x));
+            const articles = new Set(filteredData.map(r => r[3]).filter(x => x));
+            const bobines = filteredData.filter(row => ['BC', 'BNC'].includes(row[15])).length;
 
-            filteredData.forEach(row => {
-                const weight = parseFloat(row[16]) || 0;
-                totalProduction += weight;
-                if (row[5]) clients.add(row[5]);
-                if (row[3]) articles.add(row[3]);
-                const nature = (row[15] || '').toUpperCase();
-                if (nature === 'BC' || nature === 'BNC') bobines++;
-            });
-
-            document.getElementById('kpiTotal').textContent = totalProduction.toFixed(2);
+            document.getElementById('kpiTotal').textContent = total.toFixed(2);
             document.getElementById('kpiClients').textContent = clients.size;
             document.getElementById('kpiArticles').textContent = articles.size;
             document.getElementById('kpiBobines').textContent = bobines;
         }
 
         function updateCharts() {
-            const gammeData = aggregateByColumn(6);
-            updateChart('gammeChart', 'doughnut', gammeData);
-
-            const natureData = aggregateByColumn(15);
-            updateChart('natureChart', 'doughnut', natureData);
-
-            const clientData = aggregateByColumn(5);
-            const topClients = Object.entries(clientData)
-                .sort((a, b) => b[1] - a[1])
-                .slice(0, 10);
-            updateChart('clientsChart', 'bar', Object.fromEntries(topClients));
-
-            if (filteredData.some(row => row[19])) {
-                const dailyData = aggregateByColumn(19);
-                updateChart('dailyChart', 'line', dailyData);
-            }
-
-            const combinations = new Map();
-            filteredData.forEach(row => {
-                const key = `${row[5]} / ${row[3]}`;
-                combinations.set(key, (combinations.get(key) || 0) + (parseFloat(row[16]) || 0));
-            });
-            const topCombinations = [...combinations.entries()]
-                .sort((a, b) => b[1] - a[1])
-                .slice(0, 10);
-            updateChart('combinationChart', 'bar', Object.fromEntries(topCombinations));
+            updateGammeChart();
+            updateNatureChart();
+            updateClientsChart();
+            updateDailyChart();
+            updateCombinationChart();
         }
 
-        function aggregateByColumn(colIndex) {
-            const result = {};
+        function updateGammeChart() {
+            const gammeData = {};
             filteredData.forEach(row => {
-                const key = row[colIndex] || 'N/A';
+                const gamme = row[6] || 'Inconnu';
                 const weight = parseFloat(row[16]) || 0;
-                result[key] = (result[key] || 0) + weight;
+                gammeData[gamme] = (gammeData[gamme] || 0) + weight;
             });
-            return result;
-        }
 
-        function updateChart(canvasId, type, data) {
-            const ctx = document.getElementById(canvasId)?.getContext('2d');
-            if (!ctx) return;
-
-            if (charts[canvasId]) {
-                charts[canvasId].destroy();
-            }
-
-            const labels = Object.keys(data);
-            const values = Object.values(data);
-            const colors = generateColors(labels.length);
-
-            charts[canvasId] = new Chart(ctx, {
-                type: type,
+            const ctx = document.getElementById('gammeChart').getContext('2d');
+            if (charts.gamme) charts.gamme.destroy();
+            charts.gamme = new Chart(ctx, {
+                type: 'doughnut',
                 data: {
-                    labels: labels,
+                    labels: Object.keys(gammeData),
                     datasets: [{
-                        label: 'Production (tonnes)',
-                        data: values,
-                        backgroundColor: colors,
-                        borderColor: colors.map(c => c.replace('0.8', '1')),
-                        borderWidth: 1
+                        data: Object.values(gammeData),
+                        backgroundColor: ['#667eea', '#764ba2', '#f093fb', '#4facfe']
                     }]
                 },
-                options: {
-                    responsive: true,
-                    maintainAspectRatio: false,
-                    plugins: {
-                        legend: {
-                            position: 'bottom',
-                            labels: { padding: 15, font: { size: 11 } }
-                        }
-                    },
-                    scales: type === 'bar' ? {
-                        y: { beginAtZero: true }
-                    } : undefined
-                }
+                options: { responsive: true, maintainAspectRatio: false }
             });
         }
 
-        function generateColors(count) {
-            const colors = [
-                'rgba(102, 126, 234, 0.8)',
-                'rgba(118, 75, 162, 0.8)',
-                'rgba(237, 100, 166, 0.8)',
-                'rgba(255, 154, 158, 0.8)',
-                'rgba(250, 197, 129, 0.8)',
-                'rgba(131, 196, 87, 0.8)',
-                'rgba(76, 175, 80, 0.8)',
-                'rgba(33, 150, 243, 0.8)',
-                'rgba(156, 39, 176, 0.8)',
-                'rgba(255, 193, 7, 0.8)'
-            ];
-            const result = [];
-            for (let i = 0; i < count; i++) {
-                result.push(colors[i % colors.length]);
-            }
-            return result;
+        function updateNatureChart() {
+            const natureData = {};
+            filteredData.forEach(row => {
+                const nature = row[15] || 'Inconnu';
+                const weight = parseFloat(row[16]) || 0;
+                natureData[nature] = (natureData[nature] || 0) + weight;
+            });
+
+            const ctx = document.getElementById('natureChart').getContext('2d');
+            if (charts.nature) charts.nature.destroy();
+            charts.nature = new Chart(ctx, {
+                type: 'doughnut',
+                data: {
+                    labels: Object.keys(natureData),
+                    datasets: [{
+                        data: Object.values(natureData),
+                        backgroundColor: ['#667eea', '#764ba2', '#f093fb', '#4facfe', '#fd79a8']
+                    }]
+                },
+                options: { responsive: true, maintainAspectRatio: false }
+            });
+        }
+
+        function updateClientsChart() {
+            const clientData = {};
+            filteredData.forEach(row => {
+                const client = row[5] || 'Inconnu';
+                const weight = parseFloat(row[16]) || 0;
+                clientData[client] = (clientData[client] || 0) + weight;
+            });
+
+            const sorted = Object.entries(clientData).sort((a, b) => b[1] - a[1]).slice(0, 10);
+            const ctx = document.getElementById('clientsChart').getContext('2d');
+            if (charts.clients) charts.clients.destroy();
+            charts.clients = new Chart(ctx, {
+                type: 'bar',
+                data: {
+                    labels: sorted.map(x => x[0]),
+                    datasets: [{
+                        label: 'Tonnage (T)',
+                        data: sorted.map(x => x[1]),
+                        backgroundColor: '#667eea'
+                    }]
+                },
+                options: { responsive: true, maintainAspectRatio: false }
+            });
+        }
+
+        function updateDailyChart() {
+            const dailyData = {};
+            filteredData.forEach(row => {
+                const date = row[19] || new Date().toISOString().split('T')[0];
+                const weight = parseFloat(row[16]) || 0;
+                dailyData[date] = (dailyData[date] || 0) + weight;
+            });
+
+            const sorted = Object.entries(dailyData).sort((a, b) => new Date(a[0]) - new Date(b[0]));
+            const ctx = document.getElementById('dailyChart').getContext('2d');
+            if (charts.daily) charts.daily.destroy();
+            charts.daily = new Chart(ctx, {
+                type: 'line',
+                data: {
+                    labels: sorted.map(x => x[0]),
+                    datasets: [{
+                        label: 'Production (T)',
+                        data: sorted.map(x => x[1]),
+                        borderColor: '#667eea',
+                        backgroundColor: 'rgba(102, 126, 234, 0.1)',
+                        tension: 0.3
+                    }]
+                },
+                options: { responsive: true, maintainAspectRatio: false }
+            });
+        }
+
+        function updateCombinationChart() {
+            const combData = {};
+            filteredData.forEach(row => {
+                const key = (row[5] || 'Client?') + ' / ' + (row[3] || 'Article?');
+                const weight = parseFloat(row[16]) || 0;
+                combData[key] = (combData[key] || 0) + weight;
+            });
+
+            const sorted = Object.entries(combData).sort((a, b) => b[1] - a[1]).slice(0, 10);
+            const ctx = document.getElementById('combinationChart').getContext('2d');
+            if (charts.combination) charts.combination.destroy();
+            charts.combination = new Chart(ctx, {
+                type: 'horizontalBar',
+                data: {
+                    labels: sorted.map(x => x[0]),
+                    datasets: [{
+                        label: 'Tonnage (T)',
+                        data: sorted.map(x => x[1]),
+                        backgroundColor: '#764ba2'
+                    }]
+                },
+                options: { responsive: true, maintainAspectRatio: false, indexAxis: 'y' }
+            });
         }
 
         function updateTables() {
@@ -1193,195 +1199,120 @@
         }
 
         function updateNatureTable() {
+            const natureData = {};
+            filteredData.forEach(row => {
+                const nature = row[15] || 'Inconnu';
+                const weight = parseFloat(row[16]) || 0;
+                if (!natureData[nature]) natureData[nature] = { weight: 0, count: 0 };
+                natureData[nature].weight += weight;
+                natureData[nature].count += 1;
+            });
+
+            const total = Object.values(natureData).reduce((sum, x) => sum + x.weight, 0);
             const tbody = document.getElementById('natureTableBody');
             tbody.innerHTML = '';
-            const total = filteredData.reduce((sum, row) => sum + (parseFloat(row[16]) || 0), 0);
-            const natures = aggregateByColumn(15);
-
-            Object.entries(natures)
-                .sort((a, b) => b[1] - a[1])
-                .forEach(([nature, weight]) => {
-                    const bobines = filteredData.filter(row => {
-                        const n = (row[15] || '').toUpperCase();
-                        return (n === 'BC' || n === 'BNC') && row[15] === nature;
-                    }).length;
-                    
-                    const row = tbody.insertRow();
-                    row.innerHTML = `
-                        <td>${nature}</td>
-                        <td class="table-cell-right">${weight.toFixed(2)}</td>
-                        <td class="table-cell-right">${((weight / total) * 100).toFixed(1)}%</td>
-                        <td class="table-cell-right">${bobines}</td>
-                    `;
-                });
+            Object.entries(natureData).sort((a, b) => b[1].weight - a[1].weight).forEach(([nature, data]) => {
+                const tr = document.createElement('tr');
+                tr.innerHTML = `
+                    <td>${nature}</td>
+                    <td class="table-cell-right">${data.weight.toFixed(2)}</td>
+                    <td class="table-cell-right">${(data.weight / total * 100).toFixed(1)}%</td>
+                    <td class="table-cell-right">${data.count}</td>
+                `;
+                tbody.appendChild(tr);
+            });
         }
 
         function updateClientTable() {
+            const clientData = {};
+            filteredData.forEach(row => {
+                const client = row[5] || 'Inconnu';
+                const weight = parseFloat(row[16]) || 0;
+                if (!clientData[client]) clientData[client] = { weight: 0, articles: new Set() };
+                clientData[client].weight += weight;
+                clientData[client].articles.add(row[3]);
+            });
+
+            const total = Object.values(clientData).reduce((sum, x) => sum + x.weight, 0);
             const tbody = document.getElementById('clientTableBody');
             tbody.innerHTML = '';
-            const total = filteredData.reduce((sum, row) => sum + (parseFloat(row[16]) || 0), 0);
-            const clients = aggregateByColumn(5);
-
-            Object.entries(clients)
-                .sort((a, b) => b[1] - a[1])
-                .forEach(([client, weight]) => {
-                    const articles = new Set(filteredData
-                        .filter(row => row[5] === client)
-                        .map(row => row[3])).size;
-                    
-                    const row = tbody.insertRow();
-                    row.innerHTML = `
-                        <td>${client}</td>
-                        <td class="table-cell-right">${weight.toFixed(2)}</td>
-                        <td class="table-cell-right">${((weight / total) * 100).toFixed(1)}%</td>
-                        <td class="table-cell-right">${articles}</td>
-                    `;
-                });
+            Object.entries(clientData).sort((a, b) => b[1].weight - a[1].weight).forEach(([client, data]) => {
+                const tr = document.createElement('tr');
+                tr.innerHTML = `
+                    <td>${client}</td>
+                    <td class="table-cell-right">${data.weight.toFixed(2)}</td>
+                    <td class="table-cell-right">${(data.weight / total * 100).toFixed(1)}%</td>
+                    <td class="table-cell-right">${data.articles.size}</td>
+                `;
+                tbody.appendChild(tr);
+            });
         }
 
         function updateCombinationTable() {
-            const tbody = document.getElementById('combinationTableBody');
-            tbody.innerHTML = '';
-            const total = filteredData.reduce((sum, row) => sum + (parseFloat(row[16]) || 0), 0);
-            const combinations = new Map();
-
+            const combData = {};
             filteredData.forEach(row => {
-                const key = `${row[5]}|${row[3]}`;
-                combinations.set(key, (combinations.get(key) || 0) + (parseFloat(row[16]) || 0));
+                const client = row[5] || 'Inconnu';
+                const article = row[3] || 'Inconnu';
+                const weight = parseFloat(row[16]) || 0;
+                const key = client + '|' + article;
+                if (!combData[key]) combData[key] = { client, article, weight: 0 };
+                combData[key].weight += weight;
             });
 
-            [...combinations.entries()]
-                .sort((a, b) => b[1] - a[1])
-                .slice(0, 10)
-                .forEach(([key, weight]) => {
-                    const [client, article] = key.split('|');
-                    const row = tbody.insertRow();
-                    row.innerHTML = `
-                        <td>${client}</td>
-                        <td>${article}</td>
-                        <td class="table-cell-right">${weight.toFixed(2)}</td>
-                        <td class="table-cell-right">${((weight / total) * 100).toFixed(1)}%</td>
-                    `;
-                });
+            const total = Object.values(combData).reduce((sum, x) => sum + x.weight, 0);
+            const tbody = document.getElementById('combinationTableBody');
+            tbody.innerHTML = '';
+            Object.values(combData).sort((a, b) => b.weight - a.weight).slice(0, 10).forEach(data => {
+                const tr = document.createElement('tr');
+                tr.innerHTML = `
+                    <td>${data.client}</td>
+                    <td>${data.article}</td>
+                    <td class="table-cell-right">${data.weight.toFixed(2)}</td>
+                    <td class="table-cell-right">${(data.weight / total * 100).toFixed(1)}%</td>
+                `;
+                tbody.appendChild(tr);
+            });
         }
 
         function updateGammeTable() {
+            const gammeData = {};
+            filteredData.forEach(row => {
+                const gamme = row[6] || 'Inconnu';
+                const weight = parseFloat(row[16]) || 0;
+                gammeData[gamme] = (gammeData[gamme] || 0) + weight;
+            });
+
+            const total = Object.values(gammeData).reduce((sum, x) => sum + x, 0);
             const tbody = document.getElementById('gammeTableBody');
             tbody.innerHTML = '';
-            const total = filteredData.reduce((sum, row) => sum + (parseFloat(row[16]) || 0), 0);
-            const gammes = aggregateByColumn(6);
-
-            Object.entries(gammes)
-                .sort((a, b) => b[1] - a[1])
-                .forEach(([gamme, weight]) => {
-                    const row = tbody.insertRow();
-                    row.innerHTML = `
-                        <td>${gamme}</td>
-                        <td class="table-cell-right">${weight.toFixed(2)}</td>
-                        <td class="table-cell-right">${((weight / total) * 100).toFixed(1)}%</td>
-                    `;
-                });
-        }
-
-        function exportToExcel() {
-            const ws_data = [
-                ['Client', 'Article', 'Gamme EP', 'Nature', 'Poids (T)', 'Date']
-            ];
-
-            filteredData.forEach(row => {
-                ws_data.push([
-                    row[5] || '',
-                    row[3] || '',
-                    row[6] || '',
-                    row[15] || '',
-                    row[16] || '',
-                    row[19] || ''
-                ]);
+            Object.entries(gammeData).sort((a, b) => b[1] - a[1]).forEach(([gamme, weight]) => {
+                const tr = document.createElement('tr');
+                tr.innerHTML = `
+                    <td>${gamme}</td>
+                    <td class="table-cell-right">${weight.toFixed(2)}</td>
+                    <td class="table-cell-right">${(weight / total * 100).toFixed(1)}%</td>
+                `;
+                tbody.appendChild(tr);
             });
-
-            const ws = XLSX.utils.aoa_to_sheet(ws_data);
-            const wb = XLSX.utils.book_new();
-            XLSX.utils.book_append_sheet(wb, ws, 'Rapport Production');
-            XLSX.writeFile(wb, `Rapport_Production_${new Date().toISOString().split('T')[0]}.xlsx`);
-            showStatus('success', '✅ Export Excel réussi');
-        }
-
-        function exportToCSV() {
-            const data = [
-                ['Client', 'Article', 'Gamme EP', 'Nature', 'Poids (T)', 'Date']
-            ];
-
-            filteredData.forEach(row => {
-                data.push([
-                    row[5] || '',
-                    row[3] || '',
-                    row[6] || '',
-                    row[15] || '',
-                    row[16] || '',
-                    row[19] || ''
-                ]);
-            });
-
-            const csv = Papa.unparse(data);
-            const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
-            const link = document.createElement('a');
-            link.href = URL.createObjectURL(blob);
-            link.download = `Rapport_Production_${new Date().toISOString().split('T')[0]}.csv`;
-            link.click();
-            showStatus('success', '✅ Export CSV réussi');
-        }
-
-        function exportToJSON() {
-            const data = filteredData.map(row => ({
-                client: row[5],
-                article: row[3],
-                gammeEP: row[6],
-                nature: row[15],
-                poids: row[16],
-                date: row[19]
-            }));
-
-            const json = JSON.stringify(data, null, 2);
-            const blob = new Blob([json], { type: 'application/json' });
-            const link = document.createElement('a');
-            link.href = URL.createObjectURL(blob);
-            link.download = `Rapport_Production_${new Date().toISOString().split('T')[0]}.json`;
-            link.click();
-            showStatus('success', '✅ Export JSON réussi');
-        }
-
-        function printReport() {
-            const element = document.body;
-            const opt = {
-                margin: 10,
-                filename: `Rapport_Production_${new Date().toISOString().split('T')[0]}.pdf`,
-                image: { type: 'jpeg', quality: 0.98 },
-                html2canvas: { scale: 2 },
-                jsPDF: { orientation: 'landscape', unit: 'mm', format: 'a4' }
-            };
-
-            html2pdf().set(opt).from(element).save();
-            showStatus('success', '✅ Export PDF en cours de téléchargement');
         }
 
         function showStatus(type, message) {
-            const msg = document.getElementById('statusMessage');
-            msg.className = `status-message show ${type}`;
-            msg.textContent = message;
+            const statusEl = document.getElementById('statusMessage');
+            statusEl.className = `status-message show ${type}`;
+            statusEl.textContent = message;
         }
 
         function showProgress(show) {
             document.getElementById('progressBar').classList.toggle('hidden', !show);
+            if (show) {
+                document.getElementById('progressFill').style.width = '100%';
+            }
         }
 
         function showPreview() {
             const preview = document.getElementById('previewSection');
-            const previewText = document.getElementById('previewText');
-            if (rawData.length > 0) {
-                const summary = `${rawData.length} lignes importées | Clients: ${new Set(rawData.map(r => r[5])).size} | Articles: ${new Set(rawData.map(r => r[3])).size}`;
-                previewText.textContent = summary;
-                preview.classList.add('show');
-            }
+            preview.classList.add('show');
+            document.getElementById('previewText').textContent = `${rawData.length} lignes chargées`;
         }
 
         function closePreview() {
@@ -1391,14 +1322,81 @@
         function clearData() {
             rawData = [];
             filteredData = [];
-            fileInput.value = '';
             document.getElementById('filtersSection').classList.remove('show');
             document.getElementById('kpiSection').classList.remove('show');
             document.getElementById('chartsSection').classList.remove('show');
             document.getElementById('tablesSection').classList.remove('show');
             document.getElementById('exportSection').classList.remove('show');
             document.getElementById('previewSection').classList.remove('show');
-            showStatus('info', '🗑️ Données effacées');
+            showStatus('info', '✅ Données effacées');
+        }
+
+        function resetFilters() {
+            document.getElementById('dateStart').value = '';
+            document.getElementById('dateEnd').value = '';
+            document.getElementById('clientFilter').selectedIndex = -1;
+            document.getElementById('gammeFilter').selectedIndex = -1;
+            document.querySelectorAll('#natureFilter input[type="checkbox"]').forEach(c => c.checked = false);
+            applyFilters();
+        }
+
+        function exportToExcel() {
+            if (filteredData.length === 0) {
+                showStatus('error', '❌ Aucune donnée à exporter');
+                return;
+            }
+            const ws = XLSX.utils.aoa_to_sheet(filteredData);
+            const wb = XLSX.utils.book_new();
+            XLSX.utils.book_append_sheet(wb, ws, 'Données');
+            XLSX.writeFile(wb, 'rapport_production.xlsx');
+            showStatus('success', '✅ Export Excel réussi');
+        }
+
+        function exportToCSV() {
+            if (filteredData.length === 0) {
+                showStatus('error', '❌ Aucune donnée à exporter');
+                return;
+            }
+            const csv = filteredData.map(row => row.join(',')).join('\n');
+            const blob = new Blob([csv], { type: 'text/csv' });
+            const url = window.URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = 'rapport_production.csv';
+            a.click();
+            showStatus('success', '✅ Export CSV réussi');
+        }
+
+        function exportToJSON() {
+            if (filteredData.length === 0) {
+                showStatus('error', '❌ Aucune donnée à exporter');
+                return;
+            }
+            const json = JSON.stringify(filteredData, null, 2);
+            const blob = new Blob([json], { type: 'application/json' });
+            const url = window.URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = 'rapport_production.json';
+            a.click();
+            showStatus('success', '✅ Export JSON réussi');
+        }
+
+        function printReport() {
+            if (filteredData.length === 0) {
+                showStatus('error', '❌ Aucune donnée à imprimer');
+                return;
+            }
+            const element = document.getElementById('kpiSection').parentElement;
+            const opt = {
+                margin: 10,
+                filename: 'rapport_production.pdf',
+                image: { type: 'jpeg', quality: 0.98 },
+                html2canvas: { scale: 2 },
+                jsPDF: { orientation: 'portrait', unit: 'mm', format: 'a4' }
+            };
+            html2pdf().set(opt).from(element).save();
+            showStatus('success', '✅ Impression PDF en cours...');
         }
     </script>
 </body>
